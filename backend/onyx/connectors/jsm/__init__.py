@@ -1,1 +1,1 @@
-
+# JSM Connector package

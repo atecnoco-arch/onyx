@@ -60,31 +60,53 @@ def best_effort_get_field_from_issue(jira_issue: Issue, field: str) -> Any:
 
 
 def extract_text_from_adf(adf: dict | None) -> str:
-    """Extracts plain text from Atlassian Document Format:
-    https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
-    """
+    """Extracts plain text from Atlassian Document Format with improved formatting."""
     if adf is None:
         return ""
 
-    texts = []
+    texts: list[str] = []
 
     def _traverse(node: Any) -> None:
         if not isinstance(node, dict):
             return
 
         node_type = node.get("type")
+        
         if node_type == "text":
-            if "text" in node:
-                texts.append(node["text"])
+            text = node.get("text", "")
+            if text:
+                texts.append(text)
+        
         elif node_type == "hardBreak":
             texts.append("\n")
+        
         elif node_type == "paragraph":
+            # Recursively traverse content first, then append separator 
+            if "content" in node:
+                for child in node["content"]:
+                    _traverse(child)
             texts.append("\n")
+            return
+
+        elif node_type == "heading":
+            if texts and texts[-1] != "\n":
+                texts.append("\n")
+        
+        elif node_type == "listItem":
+            if texts and texts[-1] != "\n":
+                texts.append("\n")
+            texts.append("- ")
 
         # Recursively traverse content
-        if "content" in node:
-            for child in node["content"]:
+        content = node.get("content")
+        if isinstance(content, list):
+            for child in content:
                 _traverse(child)
+        
+        # Add final newline for block types
+        if node_type in ("heading", "bulletList", "orderedList"):
+            if texts and texts[-1] != "\n":
+                texts.append("\n")
 
     _traverse(adf)
     return "".join(texts).strip()
