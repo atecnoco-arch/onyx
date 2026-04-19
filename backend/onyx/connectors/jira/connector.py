@@ -1,6 +1,5 @@
 import copy
 import json
-import os
 from collections.abc import Callable
 from collections.abc import Generator
 from collections.abc import Iterable
@@ -55,7 +54,6 @@ from onyx.db.enums import HierarchyNodeType
 from onyx.indexing.indexing_heartbeat import IndexingHeartbeatInterface
 from onyx.utils.logger import setup_logger
 
-
 logger = setup_logger()
 
 ONE_HOUR = 3600
@@ -87,7 +85,7 @@ _FIELD_RESOLUTION_DATE_KEY = "resolution_date"
 
 
 def _is_cloud_client(jira_client: JIRA) -> bool:
-    return jira_client._options["rest_api_version"] == JIRA_CLOUD_API_VERSION
+    return bool(jira_client._options["rest_api_version"] == JIRA_CLOUD_API_VERSION)
 
 
 def _perform_jql_search(
@@ -258,7 +256,7 @@ def _bulk_fetch_request(
     resp = jira_client._session.post(  # ty: ignore[unresolved-attribute]
         bulk_fetch_path, json=payload
     )
-    return resp.json()["issues"]
+    return list(resp.json()["issues"])
 
 
 def _bulk_fetch_batch(
@@ -289,7 +287,7 @@ def _bulk_fetch_batch(
 def bulk_fetch_issues(
     jira_client: JIRA, issue_ids: list[str], fields: str | None = None
 ) -> list[Issue]:
-    # TODO(evan): move away from this jira library if they continue to not support
+    # Note: move away from this jira library if they continue to not support
     # the endpoints we need. Using private fields is not ideal, but
     # is likely fine for now since we pin the library version
 
@@ -538,7 +536,7 @@ class JiraConnector(
         self._project_permissions_cache: dict[str, Any] = {}
 
     @property
-    def comment_email_blacklist(self) -> tuple:
+    def comment_email_blacklist(self) -> tuple[str, ...]:
         return tuple(email.strip() for email in self._comment_email_blacklist)
 
     @property
@@ -582,7 +580,7 @@ class JiraConnector(
         issuetype = best_effort_get_field_from_issue(issue, _FIELD_ISSUETYPE)
         if issuetype is None:
             return False
-        return issuetype.name.lower() == "epic"
+        return bool(issuetype.name.lower() == "epic")
 
     def _is_parent_epic(self, parent: Any) -> bool:
         """Check if a parent reference is an Epic.
@@ -597,7 +595,7 @@ class JiraConnector(
         )
         if parent_issuetype is None:
             return False
-        return parent_issuetype.name.lower() == "epic"
+        return bool(parent_issuetype.name.lower() == "epic")
 
     def _yield_project_hierarchy_node(
         self,
@@ -688,7 +686,7 @@ class JiraConnector(
             return project_key
 
         if self._is_parent_epic(parent):
-            return parent.key
+            return str(parent.key)
 
         # For non-epic parents (e.g., story with subtasks),
         # the document belongs directly under the project in the hierarchy
@@ -832,9 +830,9 @@ class JiraConnector(
                     parent_hierarchy_raw_node_id=parent_hierarchy_raw_node_id,
                 ):
                     # Add permission information to the document if requested
-                    if include_permissions:
+                    if include_permissions and project_key:
                         document.external_access = self._get_project_permissions(
-                            project_key,  # ty: ignore[invalid-argument-type]
+                            project_key,
                             add_prefix=True,  # Indexing path - prefix here
                         )
                     yield document
@@ -1077,41 +1075,3 @@ def make_checkpoint_callback(
         checkpoint.ids_done = pageToken is None
 
     return checkpoint_callback
-
-
-if __name__ == "__main__":
-    import os
-    from onyx.utils.variable_functionality import global_version
-    from tests.daily.connectors.utils import load_all_from_connector
-
-    # For connector permission testing, set EE to true.
-    global_version.set_ee()
-
-    connector = JiraConnector(
-        jira_base_url=os.environ["JIRA_BASE_URL"],
-        project_key=os.environ.get("JIRA_PROJECT_KEY"),
-        comment_email_blacklist=[],
-    )
-
-    connector.load_credentials(
-        {
-            "jira_user_email": os.environ["JIRA_USER_EMAIL"],
-            "jira_api_token": os.environ["JIRA_API_TOKEN"],
-        }
-    )
-
-    start = 0
-    end = datetime.now().timestamp()
-
-    for slim_doc in connector.retrieve_all_slim_docs_perm_sync(
-        start=start,
-        end=end,
-    ):
-        print(slim_doc)
-
-    for doc in load_all_from_connector(
-        connector=connector,
-        start=start,
-        end=end,
-    ).documents:
-        print(doc)
