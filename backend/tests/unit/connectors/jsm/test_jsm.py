@@ -35,5 +35,3 @@ def test_jsm_connector_source_override():
         except StopIteration as e:
             assert e.value == mock_checkpoint
 
-if __name__ == "__main__":
-    test_jsm_connector_source_override()
