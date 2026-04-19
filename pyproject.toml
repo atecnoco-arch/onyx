@@ -175,6 +175,7 @@ dev = [
     "types-retry==0.9.9.3",
     "types-setuptools==68.0.0.3",
     "zizmor==1.18.0",
+    "mypy>=1.20.1",
 ]
 
 # Enterprise Edition features
